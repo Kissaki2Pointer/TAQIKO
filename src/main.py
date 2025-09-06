@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
+from logger import slog
+
 def main():
-    print("Hello, TAQIKO!")
+    slog("START", "TAQIKOを起動します。")
 
 if __name__ == "__main__":
     main()
