@@ -12,6 +12,9 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from logger import slog
 
+# TODO: 後でconfigに書く。
+setmoney = 1000
+
 def get_env_value(key):
 	"""
 	.envファイルから指定されたキーの値を取得する
@@ -60,8 +63,8 @@ def web_login():
 	try:
 		number_inet = driver.find_element(By.NAME, 'inetid')
 	except Exception as e:
-		slog("WEBログインができませんでした。")
-		driver.close()
+		slog("ERROR", "WEBログインができませんでした。")
+		driver.quit() 
 		return False
 
 	number_inet.send_keys(get_env_value("INETID")) #INET-ID
@@ -83,4 +86,70 @@ def web_login():
 def payment():
 	slog("INFO", f"JRA 入金処理を実行します。")
 
+	try:
+		genmoney = driver.find_element(By.XPATH, "//td[@class='text-lg text-right ng-binding']").text
+	except Exception as e: # ここでお知らせある場合、OK押してから入金へ進む。
+			driver.find_element(By.XPATH,"//button[@class='btn btn-default btn-lg btn-ok' and starts-with(@ui-sref, 'home')]").click()
+			sleep(2)
+			genmoney = driver.find_element(By.XPATH,"//td[@class='text-lg text-right ng-binding']").text
+
+	slog("INFO", "現在の購入限度額は" + genmoney + "です。")
+	if genmoney != "0円":
+		slog("INFO", "既に入金されています。")
+		# 整数型に変換
+		genmoney = int(genmoney.replace("円", "").replace(",", ""))
+
+		if genmoney < int(setmoney):
+			slog("INFO", "残金が足りません。入金指示を実行します。")
+			enter_payment(setmoney)
+			slog("INFO", "入金処理を完了しました。\n")
+	else:
+		# 最初の入金処理
+		slog("INFO", "入金されていません。入金指示を実行します。")
+		enter_payment(setmoney)
+		slog("INFO", "入金処理を完了しました。\n")
+
+	return True
+
+
+def enter_payment(setmoney):
+	driver.find_element(By.XPATH, "//button[@ng-click='vm.clickPayment()']").click()
+	sleep(2)
+	# 全てのウィンドウハンドルを取得
+	window_handles = driver.window_handles
+	# 最後に開いたタブに移動
+	driver.switch_to.window(window_handles[-1])
+
+	driver.find_element(By.XPATH, "//a[@onclick=\"javascript:submitForm(menuForm, 'nyukin');\"]").click()
+	driver.find_element(By.ID, "NYUKIN_ID").send_keys(setmoney)
+	driver.find_element(By.XPATH, "//a[@onclick=\"javascript:submitForm(nyukinForm, 'CNFRM');\"]").click()
+	sleep(2)
+	# 入金指示 最終確認
+	driver.find_element(By.ID, "PASS_WORD_ID").send_keys(get_env_value("KPASS"))
+	driver.find_element(By.XPATH, "//a[@onclick=\"javascript:submitForm(this, nyukinForm, 'EXEC');\"]").click()
+	# ポップアップ "入金します。よろしいですか？"
+	Alert(driver).accept()
+	sleep(1)
+	driver.find_element(By.XPATH, "//a[@onclick=\"javascript:submitGoLogoff();\"]")
+	# 全てのウィンドウハンドルを取得
+	window_handles = driver.window_handles
+	# 最初のタブに移動
+	driver.switch_to.window(window_handles[0])
+	# 最初のタブ以外を閉じる
+	for handle in window_handles[1:]:
+		driver.switch_to.window(handle)
+		driver.close()
+
+	# コントロールを最初のタブに戻す
+	driver.switch_to.window(window_handles[0])
+	# 入金待ち時間
+	sleep(5)
+	# 更新ボタンを押す。
+	driver.find_element(By.XPATH,"//button[@class='btn btn-default btn-lg pull-right' and starts-with(@ng-click, 'vm.getBalanceData()')]").click()
+
+	return True
+
+
+def purchase(current_weekday):
+	pass
 

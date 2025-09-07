@@ -2,7 +2,7 @@
 
 from logger import slog
 from datetime import datetime
-from keiko.bet import web_login,payment
+from keiko.bet import web_login,payment,purchase
 
 def main():
     slog("START", "TAQIKOを起動します。")
@@ -19,6 +19,8 @@ def main():
         if ret == True:
             # 入金処理
             ret = payment()
+            if ret == True:
+                ret = purchase(current_weekday)
     else:
         slog("INFO", "株自動売買ツールを実行します")
 
