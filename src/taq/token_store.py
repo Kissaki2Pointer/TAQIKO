@@ -44,13 +44,12 @@ def get_token():
                     old_file_path = os.path.join(token_dir, old_token_file)
                     if os.path.isfile(old_file_path):
                         os.remove(old_file_path)
-                        slog("INFO", f"古いトークンファイルを削除しました: {old_file_path}")
                 
                 # トークンファイルを作成
                 token_file_path = os.path.join(token_dir, token)
                 with open(token_file_path, 'w', encoding='utf-8') as token_file:
                     pass
-                slog("INFO", f"Token saved to: {token_file_path}")
+                slog("INFO", f"トークン : {token}")
                 return True
             else:
                 return False
