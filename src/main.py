@@ -4,6 +4,8 @@ from logger import slog
 from datetime import datetime
 from keiko.bet import web_login,payment,purchase
 from taq.token_store import get_token
+import time
+import sys
 
 def main():
     slog("START", "TAQIKOを起動します。")
@@ -24,14 +26,28 @@ def main():
                 ret = purchase(current_weekday)
     else:
         slog("INFO", "株自動売買ツールを実行します。")
-        # トークン取得
-        ret = get_token()
-        if ret:
-            slog("INFO", "トークン取得に成功しました。")
+        max_retries = 3
+        retry_interval = 5 * 60  # 5分
+        
+        for attempt in range(max_retries):
+            slog("INFO", f"トークン取得中...({attempt + 1}/{max_retries})")
+            ret = get_token()
+            if ret:
+                slog("INFO", "トークン取得に成功しました。")
+                break
+            else:
+                slog("ERROR", f"トークン取得に失敗しました。({attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:  # 最後の試行でない場合
+                    slog("INFO", f"{retry_interval // 60}分後に再試行します。")
+                    time.sleep(retry_interval)
         else:
-            slog("ERROR", "トークン取得に失敗しました。")
+            # 3回とも失敗した場合
+            slog("ERROR", "トークン取得に3回失敗しました。")
+            slog("END", "TAQIKOを終了します。")
+            sys.exit(1)
 
     slog("END", "TAQIKOを終了します。")
 
 if __name__ == "__main__":
     main()
+    sys.exit(1)
