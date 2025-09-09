@@ -3,6 +3,7 @@
 from logger import slog
 from datetime import datetime
 from keiko.bet import web_login,payment,purchase
+from taq.token_store import get_token
 
 def main():
     slog("START", "TAQIKOを起動します。")
@@ -22,7 +23,13 @@ def main():
             if ret == True:
                 ret = purchase(current_weekday)
     else:
-        slog("INFO", "株自動売買ツールを実行します")
+        slog("INFO", "株自動売買ツールを実行します。")
+        # トークン取得
+        ret = get_token()
+        if ret:
+            slog("INFO", "トークン取得に成功しました。")
+        else:
+            slog("ERROR", "トークン取得に失敗しました。")
 
     slog("END", "TAQIKOを終了します。")
 
