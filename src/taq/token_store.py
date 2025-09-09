@@ -39,6 +39,13 @@ def get_token():
                 if not os.path.exists(token_dir):
                     os.makedirs(token_dir)
                 
+                # 古いtokenファイルを削除
+                for old_token_file in os.listdir(token_dir):
+                    old_file_path = os.path.join(token_dir, old_token_file)
+                    if os.path.isfile(old_file_path):
+                        os.remove(old_file_path)
+                        slog("INFO", f"古いトークンファイルを削除しました: {old_file_path}")
+                
                 # トークンファイルを作成
                 token_file_path = os.path.join(token_dir, token)
                 with open(token_file_path, 'w', encoding='utf-8') as token_file:
