@@ -2,9 +2,23 @@ from logger import slog
 import pandas_datareader.data as pdr
 import talib as ta
 import mplfinance as mpf
+import json
+import requests
+import os
 
-# API_BASE = "http://localhost:18080/kabusapi" # 本番
-API_BASE_KENSHO = "http://localhost:18081/kabusapi" # 検証
+def get_api_token():
+    """tokenディレクトリからAPIトークンを取得"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    token_dir = os.path.join(script_dir, 'token')
+    
+    if not os.path.exists(token_dir):
+        raise FileNotFoundError("tokenディレクトリが存在しません")
+    
+    token_files = [f for f in os.listdir(token_dir) if os.path.isfile(os.path.join(token_dir, f))]
+    if not token_files:
+        raise FileNotFoundError("トークンファイルが見つかりません")
+    
+    return token_files[0]  # 最初のファイル名をトークンとして返す
 
 def get_stock_data(code):
 	df = pdr.DataReader("{}.JP".format(code), "stooq").sort_index()
@@ -19,7 +33,7 @@ def analyze_stock_data():
 	macd, macdsignal, _ = ta.MACD(close, fastperiod=12, slowperiod=26, signalperiod=9)
 	df['macd'] = macd
 	df['macd_signal'] = macdsignal
-	slog("INFO", df.tail())
+	# slog("INFO", df.tail())
 
 	# MDF 2つのシグナルで株価が上下する転換点を検出する。
 	mdf = df.tail(100)
@@ -63,5 +77,19 @@ def analyze_stock_data():
 	    mpf.make_addplot(mdf['rsi28'], panel=3, color='blue')
 	]
 	# mpf.plot(mdf, type='candle', volume=True, addplot=apd)
+
+
+	# 入金処理はAPIでできない。
+
+	# 現物余力 (ここで返ってきた額まで購入が可能)
+	url = 'http://localhost:18080/kabusapi/wallet/cash'
+	response = requests.get(url, headers={'X-API-KEY': get_api_token(),})
+	buyable = json.loads(response.text)
+
+	slog("INFO", "取引余力\t{}".format(buyable['StockAccountWallet']))
+
+	if int(buyable['StockAccountWallet']) < 100 * 1000:  # 例: 100株×概算1,000円
+		slog("ERROR", "資金がありません。入金してください。")
+		return False
 
 	return True
