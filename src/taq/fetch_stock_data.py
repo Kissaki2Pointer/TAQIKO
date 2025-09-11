@@ -6,6 +6,14 @@ import json
 import requests
 import os
 
+TARGETS = [
+    ("6176", "ブランジスタ"),
+    ("7792", "コラントッテ"),
+    ("4424", "Amazia"),
+    ("4260", "ハイブリッドテクノロジーズ"),
+    ("5253", "カバー"),
+]
+
 def get_api_token():
     """tokenディレクトリからAPIトークンを取得"""
     script_dir = os.path.dirname(os.path.abspath(__file__))
