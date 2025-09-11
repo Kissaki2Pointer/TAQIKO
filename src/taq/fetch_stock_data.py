@@ -5,6 +5,7 @@ import mplfinance as mpf
 import json
 import requests
 import os
+import numpy as np
 
 TARGETS = [
     ("6176", "ブランジスタ"),
@@ -12,6 +13,7 @@ TARGETS = [
     ("4424", "Amazia"),
     ("4260", "ハイブリッドテクノロジーズ"),
     ("5253", "カバー"),
+    ("5262", "ヒューム"),
 ]
 
 def get_api_token():
@@ -32,60 +34,77 @@ def get_stock_data(code):
 	df = pdr.DataReader("{}.JP".format(code), "stooq").sort_index()
 	return df
 
+def analyze_stock_with_moving_averages(code, company_name):
+	"""
+	株価データを取得し、短期・長期移動平均線およびゴールデンクロス・デッドクロスを計算
+	"""
+	slog("INFO", f"{company_name}（{code}）の分析を開始します。")
+	
+	# 株価データ取得
+	df = get_stock_data(code)
+	close = df['Close']
+	
+	# 移動平均線の計算（5日線と25日線）
+	ma5 = ta.SMA(close, timeperiod=5)
+	ma25 = ta.SMA(close, timeperiod=25)
+	df['ma5'], df['ma25'] = ma5, ma25
+	
+	# ゴールデンクロス・デッドクロスの検出
+	# 5日移動平均と25日移動平均を比較（5日 > 25日ならTrue）
+	cross = ma5 > ma25
+	
+	# 前日と比較して状態が変わった日を検出
+	cross_shift = cross.shift(1)
+	# ゴールデンクロス：FalseからTrueに変わった日
+	gc_flag = (cross != cross_shift) & (cross == True)
+	# デッドクロス：TrueからFalseに変わった日  
+	dc_flag = (cross != cross_shift) & (cross == False)
+	
+	# ゴールデンクロスの日には5日移動平均の値、デッドクロスの日には25日移動平均の値を保存
+	gc = [m if g == True else np.nan for g, m in zip(gc_flag, ma5)]
+	dc = [m if d == True else np.nan for d, m in zip(dc_flag, ma25)]
+	df['gc'], df['dc'] = gc, dc
+	
+	# 結果の表示
+	slog("INFO", f"{company_name}（{code}）の最新データ:")
+	slog("INFO", df[['Close', 'ma5', 'ma25']].tail().to_string())
+	
+	# ゴールデンクロス・デッドクロスの最新発生を確認
+	recent_gc = df[df['gc'].notna()].tail(1)
+	recent_dc = df[df['dc'].notna()].tail(1)
+	
+	if not recent_gc.empty:
+		gc_date = recent_gc.index[0].strftime('%Y-%m-%d')
+		gc_value = recent_gc['gc'].iloc[0]
+		slog("INFO", f"最新のゴールデンクロス: {gc_date} (価格: {gc_value:.2f}円)")
+	
+	if not recent_dc.empty:
+		dc_date = recent_dc.index[0].strftime('%Y-%m-%d')
+		dc_value = recent_dc['dc'].iloc[0]
+		slog("INFO", f"最新のデッドクロス: {dc_date} (価格: {dc_value:.2f}円)")
+	
+	return df
+
+def analyze_all_targets():
+	"""
+	TARGETSリスト内のすべての銘柄を分析
+	"""
+	slog("INFO", "全銘柄の移動平均線分析を開始します。")
+	
+	results = {}
+	for code, company_name in TARGETS:
+		try:
+			df = analyze_stock_with_moving_averages(code, company_name)
+			results[code] = df
+		except Exception as e:
+			slog("ERROR", f"{company_name}（{code}）の分析でエラーが発生: {e}")
+	
+	return results
+
 def analyze_stock_data():
 	slog("INFO", "株価を取得します。")
-	code = 5262 # ヒューム
-	df = get_stock_data(code)
-	# slog("INFO", df.tail())
-	close = df['Close']
-	macd, macdsignal, _ = ta.MACD(close, fastperiod=12, slowperiod=26, signalperiod=9)
-	df['macd'] = macd
-	df['macd_signal'] = macdsignal
-	# slog("INFO", df.tail())
-
-	# MDF 2つのシグナルで株価が上下する転換点を検出する。
-	mdf = df.tail(100)
-	apd  = [
-	    mpf.make_addplot(mdf['macd'], panel=2, color='red'), # パネルの2番地に赤で描画
-	    mpf.make_addplot(mdf['macd_signal'], panel=2, color='blue'), 
-	]
-	# mpf.plot(mdf, type='candle', volume=True, addplot=apd)
-
-	# RSI 売られ過ぎか、買われ過ぎかの指標
-	rsi14 = ta.RSI(close, timeperiod=14)
-	rsi28 = ta.RSI(close, timeperiod=28)
-	df['rsi14'], df['rsi28'] = rsi14, rsi28
-	mdf = df.tail(100)
-	apd  = [
-	    mpf.make_addplot(mdf['rsi14'], panel=2, color='red'),
-	    mpf.make_addplot(mdf['rsi28'], panel=2, color='blue')
-	]
-	# mpf.plot(mdf, type='candle', volume=True, addplot=apd)
-
-	# 移動平均
-	ma5, ma25, ma75  = ta.SMA(close, timeperiod=5), ta.SMA(close, timeperiod=25), ta.SMA(close, timeperiod=75)
-	df['ma5'], df['ma25'], df['ma75'] = ma5, ma25, ma75
-	mdf = df.tail(200)
-	apd  = [
-	    mpf.make_addplot(mdf['ma5'], panel=0, color='blue'),
-	    mpf.make_addplot(mdf['ma25'], panel=0, color='purple'),
-	    mpf.make_addplot(mdf['ma75'], panel=0, color='yellow'),
-	]
-	# mpf.plot(mdf, type='candle', volume=True, addplot=apd)
-
-	# 結合グラフ
-	mdf = df.tail(200)
-	apd  = [
-	    mpf.make_addplot(mdf['ma5'], panel=0, color='blue'),
-	    mpf.make_addplot(mdf['ma25'], panel=0, color='purple'),
-	    mpf.make_addplot(mdf['ma75'], panel=0, color='yellow'),
-	    mpf.make_addplot(mdf['macd'], panel=2, color='red'),
-	    mpf.make_addplot(mdf['macd_signal'], panel=2, color='blue'),
-	    mpf.make_addplot(mdf['rsi14'], panel=3, color='red'),
-	    mpf.make_addplot(mdf['rsi28'], panel=3, color='blue')
-	]
-	# mpf.plot(mdf, type='candle', volume=True, addplot=apd)
-
+	
+	analyze_all_targets()
 
 	# 入金処理はAPIでできない。
 
