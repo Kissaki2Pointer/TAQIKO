@@ -38,7 +38,7 @@ def main():
         
         for attempt in range(max_retries):
             slog("INFO", f"トークン取得中...({attempt + 1}/{max_retries})")
-            ret = get_token()
+            ret = get_token(use_test_api=True)
             if ret:
                 slog("INFO", "トークン取得に成功しました。")
                 break

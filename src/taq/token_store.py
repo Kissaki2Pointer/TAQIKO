@@ -5,19 +5,28 @@ import os
 from utils import get_env_value
 from logger import slog
 
-def get_token():
+def get_token(use_test_api):
     """
     トークンを取得し、tokenディレクトリに保存する
+    
+    Args:
+        use_test_api: 検証用APIを使用するかどうか
     """
-    api_password = get_env_value('APIPASS')
-    if api_password is None:
-        slog("ERROR", "APIPASSが取得できませんでした。")
-        return False
+    if use_test_api:
+        api_password = get_env_value('APIPASS_KSHO')
+        if api_password is None:
+            slog("ERROR", "APIPASS_KSHOが取得できませんでした。")
+            return False
+        url = 'http://localhost:18081/kabusapi/token'
+    else:
+        api_password = get_env_value('APIPASS')
+        if api_password is None:
+            slog("ERROR", "APIPASSが取得できませんでした。")
+            return False
+        url = 'http://localhost:18080/kabusapi/token'
 
     obj = { 'APIPassword': api_password }
     json_data = json.dumps(obj).encode('utf8')
-
-    url = 'http://localhost:18080/kabusapi/token'
     req = urllib.request.Request(url, json_data, method='POST')
     req.add_header('Content-Type', 'application/json')
 

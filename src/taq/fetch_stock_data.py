@@ -7,6 +7,8 @@ import json
 import requests
 import os
 import numpy as np
+import urllib.request
+import urllib.error
 
 TARGETS = [
     ("6176", "ブランジスタ"),
@@ -63,6 +65,71 @@ def write_capital(amount):
     except Exception as e:
         slog("ERROR", f"capital.txtの書き込みでエラーが発生: {e}")
         return False
+
+def buy_stock_cash(symbol, qty=100, price=0, use_test_api=True):
+    """
+    現物買い注文を送信
+    
+    Args:
+        symbol: 銘柄コード（文字列）
+        qty: 数量（デフォルト100株）
+        price: 指値価格（0の場合は成行）
+        use_test_api: 検証用APIを使用するかどうか
+    
+    Returns:
+        dict: 注文結果のレスポンス、エラーの場合はNone
+    """
+    # 検証用APIと本番APIのURL
+    base_url = 'http://localhost:18081' if use_test_api else 'http://localhost:18080'
+    url = f'{base_url}/kabusapi/sendorder'
+    
+    # 注文オブジェクトを作成
+    order_obj = {
+        'Symbol': symbol,
+        'Exchange': 1,  # 東証
+        'SecurityType': 1,  # 株式
+        'Side': '2',  # 買い
+        'CashMargin': 1,  # 現物
+        'DelivType': 2,  # お預り金
+        'FundType': 'AA',  # 現金
+        'AccountType': 2,  # 特定口座
+        'Qty': qty,
+        'FrontOrderType': 10 if price == 0 else 20,  # 10: 成行, 20: 指値
+        'Price': price,
+        'ExpireDay': 0  # 当日
+    }
+    
+    # 成行の場合はPriceを0にする
+    if price == 0:
+        order_obj['Price'] = 0
+    
+    json_data = json.dumps(order_obj).encode('utf-8')
+    
+    try:
+        req = urllib.request.Request(url, json_data, method='POST')
+        req.add_header('Content-Type', 'application/json')
+        req.add_header('X-API-KEY', get_api_token())
+        
+        with urllib.request.urlopen(req) as res:
+            if res.status == 200:
+                content = json.loads(res.read())
+                slog("INFO", f"注文送信成功: {symbol} {qty}株 {'成行' if price == 0 else f'{price}円'}")
+                slog("INFO", f"注文結果: {content}")
+                return content
+            else:
+                slog("ERROR", f"注文送信失敗: Status {res.status}")
+                return None
+                
+    except urllib.error.HTTPError as e:
+        try:
+            error_content = json.loads(e.read())
+            slog("ERROR", f"注文エラー: {symbol} - {error_content}")
+        except:
+            slog("ERROR", f"注文エラー: {symbol} - {e}")
+        return None
+    except Exception as e:
+        slog("ERROR", f"注文送信でエラーが発生: {symbol} - {e}")
+        return None
 
 def get_stock_data(code):
 	df = pdr.DataReader("{}.JP".format(code), "stooq").sort_index()
@@ -185,14 +252,42 @@ def analyze_stock_data():
 	# 入金処理はAPIでできない。
 
 	# 現物余力 (ここで返ってきた額まで購入が可能)
-	url = 'http://localhost:18080/kabusapi/wallet/cash'
-	response = requests.get(url, headers={'X-API-KEY': get_api_token(),})
-	buyable = json.loads(response.text)
+	# url = 'http://localhost:18080/kabusapi/wallet/cash'
+	# response = requests.get(url, headers={'X-API-KEY': get_api_token(),})
+	# buyable = json.loads(response.text)
 
-	slog("INFO", "取引余力\t{}".format(buyable['StockAccountWallet']))
+	# slog("INFO", "取引余力\t{}".format(buyable['StockAccountWallet']))
 
-	if int(buyable['StockAccountWallet']) < 100 * 1000:  # 例: 100株×概算1,000円
-		slog("ERROR", "資金がありません。入金してください。")
-		return False
+	# if int(buyable['StockAccountWallet']) < 100 * 1000:  # 例: 100株×概算1,000円
+	# 	slog("ERROR", "資金がありません。入金してください。")
+	# 	return False
+
+	# 買いリストの銘柄を100株ずつ成行で購入（検証用API使用）
+	slog("INFO", "=== 購入処理開始 ===")
+	successful_orders = 0
+	total_orders = len(buy_list)
+	
+	if daily_capital > 0 and total_orders > 0:
+		for code, company_name in buy_list:
+			try:
+				slog("INFO", f"購入処理: {company_name}（{code}）100株 成行注文")
+				result = buy_stock_cash(code, qty=100, price=0, use_test_api=True)
+				
+				if result:
+					successful_orders += 1
+					slog("INFO", f"購入成功: {company_name}（{code}）")
+				else:
+					slog("ERROR", f"購入失敗: {company_name}（{code}）")
+					
+			except Exception as e:
+				slog("ERROR", f"購入処理でエラー: {company_name}（{code}） - {e}")
+	
+	else:
+		if daily_capital <= 0:
+			slog("WARNING", "発注可能枠が0円のため購入処理をスキップしました")
+		if total_orders == 0:
+			slog("INFO", "購入対象がないため購入処理をスキップしました")
+	
+	slog("INFO", f"購入処理完了: {successful_orders}/{total_orders}件成功")
 
 	return True
