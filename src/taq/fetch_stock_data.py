@@ -31,6 +31,39 @@ def get_api_token():
     
     return token_files[0]  # 最初のファイル名をトークンとして返す
 
+def read_capital():
+    """capital.txtから発注可能枠を読み込む"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(script_dir))
+    capital_file_path = os.path.join(project_root, 'db', 'capital.txt')
+    
+    try:
+        with open(capital_file_path, 'r') as f:
+            capital = int(f.read().strip())
+        slog("INFO", f"発注可能枠を読み込み: {capital:,}円")
+        return capital
+    except FileNotFoundError:
+        slog("ERROR", f"capital.txtが見つかりませ")
+        return 0
+    except ValueError:
+        slog("ERROR", "capital.txtの内容が正しくありません")
+        return 0
+
+def write_capital(amount):
+    """capital.txtに発注可能枠を書き込む"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(script_dir))
+    capital_file_path = os.path.join(project_root, 'db', 'capital.txt')
+    
+    try:
+        with open(capital_file_path, 'w') as f:
+            f.write(str(amount))
+        slog("INFO", f"発注可能枠を更新: {amount:,}円")
+        return True
+    except Exception as e:
+        slog("ERROR", f"capital.txtの書き込みでエラーが発生: {e}")
+        return False
+
 def get_stock_data(code):
 	df = pdr.DataReader("{}.JP".format(code), "stooq").sort_index()
 	return df
@@ -145,6 +178,9 @@ def analyze_stock_data():
 	slog("INFO", "売買リストを作成します。")
 	
 	results, buy_list, sell_list = analyze_all_targets()
+
+	# capital.txtから今日の発注可能枠を取得
+	daily_capital = read_capital()
 
 	# 入金処理はAPIでできない。
 
