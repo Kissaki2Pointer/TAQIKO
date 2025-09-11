@@ -1,5 +1,6 @@
 from logger import slog
 import pandas_datareader.data as pdr
+import pandas as pd
 import talib as ta
 import mplfinance as mpf
 import json
@@ -83,28 +84,67 @@ def analyze_stock_with_moving_averages(code, company_name):
 		dc_value = recent_dc['dc'].iloc[0]
 		slog("INFO", f"最新のデッドクロス: {dc_date} (価格: {dc_value:.2f}円)")
 	
-	return df
+	# 前日のゴールデンクロス・デッドクロスを確認
+	yesterday_gc = False
+	yesterday_dc = False
+	
+	if len(df) >= 2:
+		# 最新から2番目（前日）のデータを取得
+		yesterday_data = df.iloc[-2]
+		yesterday_gc = not pd.isna(yesterday_data.get('gc', np.nan))
+		yesterday_dc = not pd.isna(yesterday_data.get('dc', np.nan))
+		
+		if yesterday_gc:
+			slog("INFO", f"前日にゴールデンクロス発生: {company_name}（{code}）")
+		if yesterday_dc:
+			slog("INFO", f"前日にデッドクロス発生: {company_name}（{code}）")
+	
+	return df, yesterday_gc, yesterday_dc
 
 def analyze_all_targets():
 	"""
-	TARGETSリスト内のすべての銘柄を分析
+	TARGETSリスト内のすべての銘柄を分析し、buy_listとsell_listを作成
 	"""
 	slog("INFO", "全銘柄の移動平均線分析を開始します。")
 	
 	results = {}
+	buy_list = []
+	sell_list = []
+	
 	for code, company_name in TARGETS:
 		try:
-			df = analyze_stock_with_moving_averages(code, company_name)
+			df, yesterday_gc, yesterday_dc = analyze_stock_with_moving_averages(code, company_name)
 			results[code] = df
+			
+			# 前日にゴールデンクロスが発生した銘柄をbuy_listに追加
+			if yesterday_gc:
+				buy_list.append((code, company_name))
+				slog("INFO", f"BUY対象に追加: {company_name}（{code}）")
+			
+			# 前日にデッドクロスが発生した銘柄をsell_listに追加
+			if yesterday_dc:
+				sell_list.append((code, company_name))
+				slog("INFO", f"SELL対象に追加: {company_name}（{code}）")
+				
 		except Exception as e:
 			slog("ERROR", f"{company_name}（{code}）の分析でエラーが発生: {e}")
 	
-	return results
+	# 結果をログに出力
+	slog("INFO", "=== 売買対象リスト ===")
+	slog("INFO", f"BUY対象 ({len(buy_list)}銘柄):")
+	for code, name in buy_list:
+		slog("INFO", f"  - {name}（{code}）")
+	
+	slog("INFO", f"SELL対象 ({len(sell_list)}銘柄):")
+	for code, name in sell_list:
+		slog("INFO", f"  - {name}（{code}）")
+	
+	return results, buy_list, sell_list
 
 def analyze_stock_data():
-	slog("INFO", "株価を取得します。")
+	slog("INFO", "売買リストを作成します。")
 	
-	analyze_all_targets()
+	results, buy_list, sell_list = analyze_all_targets()
 
 	# 入金処理はAPIでできない。
 
