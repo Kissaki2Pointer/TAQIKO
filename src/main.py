@@ -5,6 +5,7 @@ from datetime import datetime
 from keiko.bet import web_login,payment,purchase
 from taq.token_store import get_token
 from taq.fetch_stock_data import analyze_stock_data
+from utils import is_target_time
 import time
 import sys
 
@@ -17,7 +18,11 @@ def main():
     slog("INFO", f"今日は{current_weekday}曜日です。")
     
     if current_weekday in ["土", "日"]:
+        slog("INFO", "8時30分まで待機します...")
+        while not is_target_time("8:30"):
+            time.sleep(60)  # 1分ごとにチェック
         slog("INFO", "競馬自動投票ツールを実行します。")
+
         # JRA WEBログイン
         ret = web_login()
         if ret == True:
@@ -26,6 +31,7 @@ def main():
             if ret == True:
                 ret = purchase(current_weekday)
     else:
+        # TODO : 祝日かどうか判定
         slog("INFO", "株自動売買ツールを実行します。")
         max_retries = 3
         retry_interval = 5 * 60  # 5分
