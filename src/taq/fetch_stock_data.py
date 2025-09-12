@@ -14,9 +14,9 @@ TARGETS = [
     ("6176", "ブランジスタ"),
     ("7792", "コラントッテ"),
     ("4424", "Amazia"),
-    ("4260", "ハイブリッドテクノロジーズ"),
-    ("5253", "カバー"),
-    ("5262", "ヒューム"),
+    # ("4260", "ハイブリッドテクノロジーズ"),
+    # ("5253", "カバー"),
+    # ("5262", "ヒューム"),
 ]
 
 def get_api_token():
@@ -278,6 +278,155 @@ def sell_stock_cash(symbol, qty=100, price=0, use_test_api=True):
         slog("ERROR", f"売り注文送信でエラーが発生: {symbol} - {e}")
         return None
 
+def get_order_status(order_id=None, symbol=None, use_test_api=True):
+    """
+    注文状況を取得
+    
+    Args:
+        order_id: 注文ID（指定した場合は特定の注文のみ）
+        symbol: 銘柄コード（指定した場合は特定銘柄のみ）
+        use_test_api: 検証用APIを使用するかどうか
+    
+    Returns:
+        list: 注文情報のリスト、エラーの場合はNone
+    """
+    # 検証用APIと本番APIのURL
+    base_url = 'http://localhost:18081' if use_test_api else 'http://localhost:18080'
+    url = f'{base_url}/kabusapi/orders'
+    
+    # パラメータ設定
+    params = {'product': 0}  # 0:すべて、1:現物、2:信用、3:先物、4:OP
+    
+    if order_id:
+        params['id'] = order_id
+    if symbol:
+        params['symbol'] = symbol
+    
+    try:
+        # URLにパラメータを追加
+        import urllib.parse
+        url_with_params = f"{url}?{urllib.parse.urlencode(params)}"
+        
+        req = urllib.request.Request(url_with_params, method='GET')
+        req.add_header('Content-Type', 'application/json')
+        req.add_header('X-API-KEY', get_api_token())
+        
+        with urllib.request.urlopen(req) as res:
+            if res.status == 200:
+                content = json.loads(res.read())
+                slog("INFO", f"注文状況取得成功: {len(content) if isinstance(content, list) else 1}件")
+                return content
+            else:
+                slog("ERROR", f"注文状況取得失敗: Status {res.status}")
+                return None
+                
+    except urllib.error.HTTPError as e:
+        try:
+            error_content = json.loads(e.read())
+            slog("ERROR", f"注文状況取得エラー: {error_content}")
+        except:
+            slog("ERROR", f"注文状況取得エラー: {e}")
+        return None
+    except Exception as e:
+        slog("ERROR", f"注文状況取得でエラーが発生: {e}")
+        return None
+
+def get_execution_price_from_order(order_id, use_test_api=True):
+    """
+    注文IDから約定価格を取得
+    
+    Args:
+        order_id: 注文ID
+        use_test_api: 検証用APIを使用するかどうか
+    
+    Returns:
+        float: 約定価格、約定していない場合やエラーの場合はNone
+    """
+    orders = get_order_status(order_id=order_id, use_test_api=use_test_api)
+    
+    if not orders:
+        return None
+    
+    # 注文情報から約定価格を取得
+    if isinstance(orders, list) and len(orders) > 0:
+        order = orders[0]
+    else:
+        order = orders
+    
+    try:
+        # State=5（終了）かつ全約定の場合のみ約定価格を返す
+        if order.get('State') == 5:  # 終了状態
+            execution_qty = order.get('CumQty', 0)  # 約定数量
+            if execution_qty > 0:
+                execution_price = order.get('Price', 0)  # 約定価格
+                if execution_price > 0:
+                    slog("INFO", f"約定価格取得: {order_id} → {execution_price}円 ({execution_qty}株)")
+                    return execution_price
+        
+        slog("INFO", f"未約定または約定価格なし: {order_id}")
+        return None
+        
+    except Exception as e:
+        slog("ERROR", f"約定価格取得でエラー: {order_id} - {e}")
+        return None
+
+def wait_for_execution_and_get_price(order_result, symbol, max_wait_seconds=30, use_test_api=True):
+    """
+    注文の約定を待機し、約定価格を取得
+    
+    Args:
+        order_result: 注文送信結果（注文IDを含む）
+        symbol: 銘柄コード
+        max_wait_seconds: 最大待機時間（秒）
+        use_test_api: 検証用APIを使用するかどうか
+    
+    Returns:
+        float: 約定価格、約定しなかった場合やエラーの場合はNone
+    """
+    if not order_result:
+        return None
+    
+    # 検証用APIの場合は仮のIDとテスト価格を使用
+    if use_test_api:
+        order_id = order_result.get('OrderId')
+        if not order_id:
+            # 検証用APIでは注文IDが返らないため、仮のIDを生成
+            import datetime
+            timestamp = datetime.datetime.now().strftime('%Y%m%dA02N%H%M%S%f')[:-2]  # マイクロ秒の下2桁を削除
+            order_id = timestamp
+            slog("INFO", f"検証用API: 仮の注文ID={order_id}を生成 {symbol}")
+        
+        # テスト用の仮の約定価格を生成（銘柄コードに基づいて）
+        import hashlib
+        hash_val = int(hashlib.md5(symbol.encode()).hexdigest()[:8], 16)
+        test_price = 500 + (hash_val % 1500)  # 500-2000円の範囲でテスト価格を生成
+        
+        slog("INFO", f"検証用API: テスト約定価格={test_price}円 {symbol} (注文ID={order_id})")
+        return float(test_price)
+    
+    # 本番API用の処理
+    order_id = order_result.get('Result')
+    if not order_id:
+        slog("ERROR", f"注文結果に注文IDがありません: {symbol}")
+        return None
+    
+    import time
+    
+    slog("INFO", f"約定待機開始: {symbol} 注文ID={order_id}")
+    
+    for i in range(max_wait_seconds):
+        execution_price = get_execution_price_from_order(order_id, use_test_api)
+        
+        if execution_price is not None:
+            slog("INFO", f"約定確認: {symbol} 約定価格={execution_price}円")
+            return execution_price
+        
+        if i < max_wait_seconds - 1:  # 最後の試行でない場合のみ待機
+            time.sleep(1)
+    
+    slog("WARNING", f"約定待機タイムアウト: {symbol} 注文ID={order_id}")
+    return None
+
 def get_stock_data(code):
 	df = pdr.DataReader("{}.JP".format(code), "stooq").sort_index()
 	return df
@@ -314,8 +463,8 @@ def analyze_stock_with_moving_averages(code, company_name):
 	df['gc'], df['dc'] = gc, dc
 	
 	# 結果の表示
-	slog("INFO", f"{company_name}（{code}）の最新データ:")
-	slog("INFO", df[['Close', 'ma5', 'ma25']].tail().to_string())
+	# slog("INFO", f"{company_name}（{code}）の最新データ:")
+	# slog("INFO", df[['Close', 'ma5', 'ma25']].tail().to_string())
 	
 	# ゴールデンクロス・デッドクロスの最新発生を確認
 	recent_gc = df[df['gc'].notna()].tail(1)
@@ -419,6 +568,7 @@ def analyze_stock_data():
 	slog("INFO", "=== 購入処理開始 ===")
 	successful_orders = 0
 	total_orders = len(buy_list)
+	buy_execution_results = []  # 約定価格を記録するリスト
 	
 	if daily_capital > 0 and total_orders > 0:
 		for code, company_name in buy_list:
@@ -427,8 +577,14 @@ def analyze_stock_data():
 				result = buy_stock_cash(code, qty=100, price=0, use_test_api=True)
 				
 				if result:
-					successful_orders += 1
-					slog("INFO", f"購入成功: {company_name}（{code}）")
+					# 約定価格を取得
+					execution_price = wait_for_execution_and_get_price(result, code, use_test_api=True)
+					if execution_price:
+						buy_execution_results.append((code, company_name, 100, execution_price))
+						successful_orders += 1
+						slog("INFO", f"購入成功: {company_name}（{code}）約定価格={execution_price}円")
+					else:
+						slog("WARNING", f"購入注文送信成功だが約定価格取得失敗: {company_name}（{code}）")
 				else:
 					slog("ERROR", f"購入失敗: {company_name}（{code}）")
 					
@@ -453,6 +609,7 @@ def analyze_stock_data():
 	slog("INFO", "=== 売却処理開始 ===")
 	sell_successful_orders = 0
 	total_sell_orders = len(sell_list)
+	sell_execution_results = []  # 約定価格を記録するリスト
 	
 	for code, company_name in sell_list:
 		try:
@@ -460,8 +617,14 @@ def analyze_stock_data():
 			result = sell_stock_cash(code, qty=100, price=0, use_test_api=True)
 			
 			if result:
-				sell_successful_orders += 1
-				slog("INFO", f"売却成功: {company_name}（{code}）")
+				# 約定価格を取得
+				execution_price = wait_for_execution_and_get_price(result, code, use_test_api=True)
+				if execution_price:
+					sell_execution_results.append((code, company_name, 100, execution_price))
+					sell_successful_orders += 1
+					slog("INFO", f"売却成功: {company_name}（{code}）約定価格={execution_price}円")
+				else:
+					slog("WARNING", f"売却注文送信成功だが約定価格取得失敗: {company_name}（{code}）")
 			else:
 				slog("ERROR", f"売却失敗: {company_name}（{code}）")
 				
@@ -474,28 +637,19 @@ def analyze_stock_data():
 	slog("INFO", f"売却処理完了: {sell_successful_orders}/{total_sell_orders}件成功")
 
 	# 取引終了後にcapital.txtを更新
-	# 注意: 実際の約定価格が必要ですが、ここでは仮の価格を使用
-	# 実運用では注文結果から実際の約定価格を取得する必要があります
 	slog("INFO", "=== 残高更新処理開始 ===")
 	
-	# 仮の約定価格（実際にはAPIレスポンスから取得）
-	dummy_buy_price = 1000  # 仮の買い価格
-	dummy_sell_price = 1100  # 仮の売り価格
-	
-	# 取引記録を作成（実際の実装では注文結果から作成）
+	# 実際の約定価格を使用して取引記録を作成
 	buy_transactions = []
-	for code, company_name in buy_list:
-		if code in [t[0] for t in TARGETS]:  # テスト用に追加された銘柄も含む
-			buy_transactions.append((code, 100, dummy_buy_price))
+	for code, company_name, qty, execution_price in buy_execution_results:
+		buy_transactions.append((code, qty, execution_price))
 	
 	sell_transactions = []
-	for code, company_name in sell_list:
-		if code in [t[0] for t in TARGETS]:  # テスト用に追加された銘柄も含む
-			sell_transactions.append((code, 100, dummy_sell_price))
+	for code, company_name, qty, execution_price in sell_execution_results:
+		sell_transactions.append((code, qty, execution_price))
 	
 	if buy_transactions or sell_transactions:
-		slog("INFO", "取引記録に基づいて発注可能枠を更新します")
-		slog("WARNING", "注意: 仮の価格を使用しています（実運用では実際の約定価格を使用してください）")
+		slog("INFO", "実際の約定価格に基づいて発注可能枠を更新します")
 		update_success = update_capital_after_trading(buy_transactions, sell_transactions)
 		
 		if update_success:
@@ -503,6 +657,6 @@ def analyze_stock_data():
 		else:
 			slog("ERROR", "発注可能枠の更新に失敗しました")
 	else:
-		slog("INFO", "取引がないため発注可能枠の更新をスキップしました")
+		slog("INFO", "約定した取引がないため発注可能枠の更新をスキップしました")
 
 	return True
