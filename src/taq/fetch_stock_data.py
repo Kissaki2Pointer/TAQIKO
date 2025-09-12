@@ -66,6 +66,88 @@ def write_capital(amount):
         slog("ERROR", f"capital.txtの書き込みでエラーが発生: {e}")
         return False
 
+def calculate_commission(execution_amount):
+    """
+    約定金額に基づいて手数料を計算する
+    
+    Args:
+        execution_amount: 約定金額（円）
+    
+    Returns:
+        int: 手数料（円）
+    """
+    if execution_amount <= 50000:
+        return 55
+    elif execution_amount <= 100000:
+        return 99
+    elif execution_amount <= 200000:
+        return 115
+    elif execution_amount <= 500000:
+        return 275
+    elif execution_amount <= 1000000:
+        return 535
+    else:
+        # 100万円超: 約定金額×0.099% + 99円（上限4,059円）
+        commission = int(execution_amount * 0.00099) + 99
+        return min(commission, 4059)
+
+def update_capital_after_trading(buy_transactions, sell_transactions):
+    """
+    取引終了後にcapital.txtを更新する
+    
+    Args:
+        buy_transactions: 買い注文のリスト [(symbol, qty, price), ...]
+        sell_transactions: 売り注文のリスト [(symbol, qty, price), ...]
+    
+    Returns:
+        bool: 更新成功かどうか
+    """
+    try:
+        # 現在の残高を取得
+        current_capital = read_capital()
+        
+        # 手数料合計を計算
+        total_commission = 0
+        
+        # 買い注文の手数料を計算
+        for symbol, qty, price in buy_transactions:
+            execution_amount = qty * price
+            commission = calculate_commission(execution_amount)
+            total_commission += commission
+            slog("INFO", f"買い手数料: {symbol} {execution_amount:,}円 → 手数料 {commission}円")
+        
+        # 売り注文の手数料を計算
+        for symbol, qty, price in sell_transactions:
+            execution_amount = qty * price
+            commission = calculate_commission(execution_amount)
+            total_commission += commission
+            slog("INFO", f"売り手数料: {symbol} {execution_amount:,}円 → 手数料 {commission}円")
+        
+        # 実現損益を計算（売り注文の合計 - 買い注文の合計）
+        buy_total = sum(qty * price for symbol, qty, price in buy_transactions)
+        sell_total = sum(qty * price for symbol, qty, price in sell_transactions)
+        realized_pnl = sell_total - buy_total
+        
+        # 新しい残高を計算
+        # capital_new = capital_old + 実現損益合計 − 手数料合計
+        new_capital = current_capital + realized_pnl - total_commission
+        
+        # ログ出力
+        slog("INFO", f"=== 残高更新 ===")
+        slog("INFO", f"前回残高: {current_capital:,}円")
+        slog("INFO", f"買い合計: {buy_total:,}円")
+        slog("INFO", f"売り合計: {sell_total:,}円")
+        slog("INFO", f"実現損益: {realized_pnl:+,}円")
+        slog("INFO", f"手数料合計: {total_commission:,}円")
+        slog("INFO", f"新残高: {new_capital:,}円")
+        
+        # capital.txtに書き込み
+        return write_capital(new_capital)
+        
+    except Exception as e:
+        slog("ERROR", f"残高更新でエラーが発生: {e}")
+        return False
+
 def buy_stock_cash(symbol, qty=100, price=0, use_test_api=True):
     """
     現物買い注文を送信
@@ -390,5 +472,37 @@ def analyze_stock_data():
 		slog("INFO", "売却対象がないため売却処理をスキップしました")
 	
 	slog("INFO", f"売却処理完了: {sell_successful_orders}/{total_sell_orders}件成功")
+
+	# 取引終了後にcapital.txtを更新
+	# 注意: 実際の約定価格が必要ですが、ここでは仮の価格を使用
+	# 実運用では注文結果から実際の約定価格を取得する必要があります
+	slog("INFO", "=== 残高更新処理開始 ===")
+	
+	# 仮の約定価格（実際にはAPIレスポンスから取得）
+	dummy_buy_price = 1000  # 仮の買い価格
+	dummy_sell_price = 1100  # 仮の売り価格
+	
+	# 取引記録を作成（実際の実装では注文結果から作成）
+	buy_transactions = []
+	for code, company_name in buy_list:
+		if code in [t[0] for t in TARGETS]:  # テスト用に追加された銘柄も含む
+			buy_transactions.append((code, 100, dummy_buy_price))
+	
+	sell_transactions = []
+	for code, company_name in sell_list:
+		if code in [t[0] for t in TARGETS]:  # テスト用に追加された銘柄も含む
+			sell_transactions.append((code, 100, dummy_sell_price))
+	
+	if buy_transactions or sell_transactions:
+		slog("INFO", "取引記録に基づいて発注可能枠を更新します")
+		slog("WARNING", "注意: 仮の価格を使用しています（実運用では実際の約定価格を使用してください）")
+		update_success = update_capital_after_trading(buy_transactions, sell_transactions)
+		
+		if update_success:
+			slog("INFO", "発注可能枠の更新が完了しました")
+		else:
+			slog("ERROR", "発注可能枠の更新に失敗しました")
+	else:
+		slog("INFO", "取引がないため発注可能枠の更新をスキップしました")
 
 	return True
