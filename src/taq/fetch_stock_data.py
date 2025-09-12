@@ -219,23 +219,23 @@ def analyze_all_targets():
 			# 前日にゴールデンクロスが発生した銘柄をbuy_listに追加
 			if yesterday_gc:
 				buy_list.append((code, company_name))
-				slog("INFO", f"BUY対象に追加: {company_name}（{code}）")
+				slog("INFO", f"買いリストに追加: {company_name}（{code}）")
 			
 			# 前日にデッドクロスが発生した銘柄をsell_listに追加
 			if yesterday_dc:
 				sell_list.append((code, company_name))
-				slog("INFO", f"SELL対象に追加: {company_name}（{code}）")
+				slog("INFO", f"売りリストに追加: {company_name}（{code}）")
 				
 		except Exception as e:
 			slog("ERROR", f"{company_name}（{code}）の分析でエラーが発生: {e}")
 	
 	# 結果をログに出力
 	slog("INFO", "=== 売買対象リスト ===")
-	slog("INFO", f"BUY対象 ({len(buy_list)}銘柄):")
+	slog("INFO", f"買いリスト ({len(buy_list)}銘柄):")
 	for code, name in buy_list:
 		slog("INFO", f"  - {name}（{code}）")
 	
-	slog("INFO", f"SELL対象 ({len(sell_list)}銘柄):")
+	slog("INFO", f"売りリスト ({len(sell_list)}銘柄):")
 	for code, name in sell_list:
 		slog("INFO", f"  - {name}（{code}）")
 	
