@@ -1,0 +1,5 @@
+selenium
+pandas_datareader
+TA-Lib
+mplfinance
+jpholiday
