@@ -131,6 +131,71 @@ def buy_stock_cash(symbol, qty=100, price=0, use_test_api=True):
         slog("ERROR", f"注文送信でエラーが発生: {symbol} - {e}")
         return None
 
+def sell_stock_cash(symbol, qty=100, price=0, use_test_api=True):
+    """
+    現物売り注文を送信
+    
+    Args:
+        symbol: 銘柄コード（文字列）
+        qty: 数量（デフォルト100株）
+        price: 指値価格（0の場合は成行）
+        use_test_api: 検証用APIを使用するかどうか
+    
+    Returns:
+        dict: 注文結果のレスポンス、エラーの場合はNone
+    """
+    # 検証用APIと本番APIのURL
+    base_url = 'http://localhost:18081' if use_test_api else 'http://localhost:18080'
+    url = f'{base_url}/kabusapi/sendorder'
+    
+    # 注文オブジェクトを作成
+    order_obj = {
+        'Symbol': symbol,
+        'Exchange': 1,  # 東証
+        'SecurityType': 1,  # 株式
+        'Side': '1',  # 売り
+        'CashMargin': 1,  # 現物
+        'DelivType': 0,  # 売建玉
+        'FundType': '  ',  # 空白
+        'AccountType': 2,  # 特定口座
+        'Qty': qty,
+        'FrontOrderType': 10 if price == 0 else 20,  # 10: 成行, 20: 指値
+        'Price': price,
+        'ExpireDay': 0  # 当日
+    }
+    
+    # 成行の場合はPriceを0にする
+    if price == 0:
+        order_obj['Price'] = 0
+    
+    json_data = json.dumps(order_obj).encode('utf-8')
+    
+    try:
+        req = urllib.request.Request(url, json_data, method='POST')
+        req.add_header('Content-Type', 'application/json')
+        req.add_header('X-API-KEY', get_api_token())
+        
+        with urllib.request.urlopen(req) as res:
+            if res.status == 200:
+                content = json.loads(res.read())
+                slog("INFO", f"売り注文送信成功: {symbol} {qty}株 {'成行' if price == 0 else f'{price}円'}")
+                slog("INFO", f"注文結果: {content}")
+                return content
+            else:
+                slog("ERROR", f"売り注文送信失敗: Status {res.status}")
+                return None
+                
+    except urllib.error.HTTPError as e:
+        try:
+            error_content = json.loads(e.read())
+            slog("ERROR", f"売り注文エラー: {symbol} - {error_content}")
+        except:
+            slog("ERROR", f"売り注文エラー: {symbol} - {e}")
+        return None
+    except Exception as e:
+        slog("ERROR", f"売り注文送信でエラーが発生: {symbol} - {e}")
+        return None
+
 def get_stock_data(code):
 	df = pdr.DataReader("{}.JP".format(code), "stooq").sort_index()
 	return df
@@ -262,6 +327,12 @@ def analyze_stock_data():
 	# 	slog("ERROR", "資金がありません。入金してください。")
 	# 	return False
 
+	# テスト用: 強制的に2番目の銘柄を買いリストに追加
+	if not buy_list and len(TARGETS) > 1:
+		test_stock = TARGETS[1]  # 2番目の銘柄
+		buy_list.append(test_stock)
+		slog("INFO", f"テスト用に買いリストに追加: {test_stock[1]}（{test_stock[0]}）")
+
 	# 買いリストの銘柄を100株ずつ成行で購入（検証用API使用）
 	slog("INFO", "=== 購入処理開始 ===")
 	successful_orders = 0
@@ -289,5 +360,35 @@ def analyze_stock_data():
 			slog("INFO", "購入対象がないため購入処理をスキップしました")
 	
 	slog("INFO", f"購入処理完了: {successful_orders}/{total_orders}件成功")
+
+	# テスト用: 強制的に最初の銘柄を売りリストに追加
+	if not sell_list and TARGETS:
+		test_stock = TARGETS[0]  # 最初の銘柄
+		sell_list.append(test_stock)
+		slog("INFO", f"テスト用に売りリストに追加: {test_stock[1]}（{test_stock[0]}）")
+
+	# 売りリストの銘柄を100株ずつ成行で売却（検証用API使用）
+	slog("INFO", "=== 売却処理開始 ===")
+	sell_successful_orders = 0
+	total_sell_orders = len(sell_list)
+	
+	for code, company_name in sell_list:
+		try:
+			slog("INFO", f"売却処理: {company_name}（{code}）100株 成行注文")
+			result = sell_stock_cash(code, qty=100, price=0, use_test_api=True)
+			
+			if result:
+				sell_successful_orders += 1
+				slog("INFO", f"売却成功: {company_name}（{code}）")
+			else:
+				slog("ERROR", f"売却失敗: {company_name}（{code}）")
+				
+		except Exception as e:
+			slog("ERROR", f"売却処理でエラー: {company_name}（{code}） - {e}")
+	
+	if total_sell_orders == 0:
+		slog("INFO", "売却対象がないため売却処理をスキップしました")
+	
+	slog("INFO", f"売却処理完了: {sell_successful_orders}/{total_sell_orders}件成功")
 
 	return True
