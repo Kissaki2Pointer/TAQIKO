@@ -4,7 +4,7 @@ from logger import slog
 from datetime import datetime
 from keiko.bet import web_login,payment,purchase
 from taq.token_store import get_token
-from taq.fetch_stock_data import analyze_stock_data
+from taq.trader import analyze_stock_data
 from utils import is_target_time
 import jpholiday
 import time
