@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 
-from logger import slog
-from datetime import datetime
-from keiko.bet import web_login,payment,purchase
-from taq.token_store import get_token
-from taq.trader import analyze_stock_data
-from utils import is_target_time
 import jpholiday
 import time
 import sys
+
+from logger import slog
+from datetime import datetime
+from keiko.bet import web_login,payment,purchase,result_check
+from taq.token_store import get_token
+from taq.trader import analyze_stock_data
+from utils import is_target_time
 
 def test_holiday_function():
     """祝日判定関数の簡易テスト"""
@@ -83,6 +84,17 @@ def main():
             ret = payment()
             if ret == True:
                 ret = purchase(current_weekday)
+                # 1時間待機
+                slog("INFO", "待機を開始します。")
+                time.sleep(1800) # 30分
+                # 結果確認
+                dividend = result_check()
+                if dividend:
+                    # 勝ち
+                    slog("INFO", "★勝ち")
+                else:
+                    # 負け
+                    slog("INFO", "負け")
     elif is_holiday:
         slog("INFO", f"今日は祝日({holiday_name})です。")
         slog("INFO", "競馬自動投票ツールを実行します。")
@@ -94,6 +106,18 @@ def main():
             ret = payment()
             if ret == True:
                 ret = purchase(current_weekday)
+                if ret == True:
+                    # 1時間待機
+                    slog("INFO", "待機を開始します。")
+                    time.sleep(1800) # 30分
+                    # 結果確認
+                    dividend = result_check()
+                    if dividend:
+                        # 勝ち
+                        slog("INFO", "★勝ち")
+                    else:
+                        # 負け
+                        slog("INFO", "負け")
     else:
         slog("INFO", "株自動売買ツールを実行します。")
         max_retries = 3

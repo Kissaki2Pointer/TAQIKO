@@ -1,5 +1,8 @@
 import os
 from time import sleep
+import random
+import pandas as pd
+from io import StringIO
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -10,11 +13,14 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
+from urllib.parse import urlparse, parse_qs
+
 from logger import slog
 from utils import get_env_value
 
 # TODO: 後でconfigに書く。
 setmoney = 1000
+waku_num = random.randint(1, 3)
 
 def get_driver():
 	global driver
@@ -129,7 +135,206 @@ def enter_payment(setmoney):
 
 	return True
 
-
 def purchase(current_weekday):
-	pass
+	slog("INFO", "4. Purchase")
+	sleep(1)
 
+	coursebutton_text = f"阪神（土）"
+	if coursebutton_text == "中山":
+		on_button = "btn btn-default btn-lg btn-block on"
+	else:
+		on_button = "btn btn-default btn-lg btn-block"
+
+	race_number = 11
+	betmoney = 100
+
+	# オッズ投票ボタン
+	driver.find_element(By.XPATH, "//button[contains(@class, 'btn btn-default btn-lg btn-block btn-size')]//*[contains(., 'オッズ')]/..").click()
+	sleep(2)
+	# オッズ投票（人気順）ボタン
+	driver.find_element(By.LINK_TEXT, 'オッズ投票（人気順）').click()
+	sleep(2)
+	# 場をクリック
+	driver.find_element(By.XPATH, f"//span[contains(text(), '{coursebutton_text}')]").click()
+	sleep(2)
+	# レース番号をクリック
+	try:
+		driver.find_element(By.XPATH, "//button[contains(@class, 'btn btn-default btn-lg btn-block ng-scope')]//*[contains(., '" + str(race_number) + "')]/..").click()
+	except Exception as e:
+		# 間に合わなかった場合
+		print("The race is over.")
+		# 投票メニューをクリック
+		driver.find_element(By.XPATH,"//a[@ui-sref='home']").click()
+		return False
+
+	sleep(2)
+
+	# 間に合わなかった場合
+	# 式別 複勝を選択
+	select_element = Select(driver.find_element(By.ID, 'bet-odds-populate-type'))
+	sleep(2)
+	select_element.select_by_visible_text('複勝')
+	sleep(2)
+	# 馬を選択
+	# 'btn-odds'クラスを持つすべてのボタンをリストとして取得
+	horse_buttons = driver.find_elements(By.CLASS_NAME, "btn-odds")
+	horse_buttons[waku_num].click() #1-3番目ランダムな人気ボタン
+	# driver.find_element(By.XPATH, "//button[@class='btn-odds' and starts-with(@ng-click, 'vm.selectOdds(oOdds)')]").click() # 一番人気ボタン
+
+	sleep(2)
+	# 金額を入力
+	input_money = WebDriverWait(driver, 10).until(
+		EC.element_to_be_clickable((By.XPATH, "//*[@id='main']/ui-view/div[2]/ui-view/ui-view/main/div/div[3]/select-list/div/div/div[3]/div[1]/input"))
+	)
+	input_money.send_keys(betmoney // 100) # 100円
+	# <input type="text" maxlength="4" class="form-control text-right ng-pristine ng-valid ng-isolate-scope ng-empty ng-valid-maxlength ng-touched" ng-model="vm.nUnit" model-pattern="^\d{0,4}$" ng-disabled="vm.isRaceUnselected()" ng-blur="vm.checkAmount()" aria-labelledby="select-list-amount-unit" aria-invalid="false" style="">
+	# //*[@id="main"]/ui-view/div[2]/ui-view/ui-view/main/div/div[3]/select-list/div/div/div[3]/div[1]/input
+
+	sleep(1)
+	# セットをクリック
+	driver.find_element(By.XPATH, "//button[@class='btn btn-lg btn-set btn-primary' and starts-with(@ng-click, 'vm.onSet()')]").click()
+	sleep(1)
+	# 入力終了をクリック
+	driver.find_element(By.XPATH, "//button[@class='btn btn-lg btn-default' and starts-with(@ng-click, 'vm.onShowBetList()')]").click()
+	sleep(1)
+
+	# 合計金額を取得
+	money = driver.find_element(By.CSS_SELECTOR, ".number.ng-binding").text
+	# 合計金額を入力
+	driver.find_element(By.CSS_SELECTOR, "input[ng-model^='vm.cAmountTotal']").send_keys(100)
+	sleep(1)
+	# 購入するを入力
+	driver.find_element(By.XPATH, "//button[@class='btn btn-lg btn-primary' and starts-with(@ng-click, 'vm.clickPurchase()')]").click()
+	sleep(1)
+	# 購入処理を完了させる(特殊ボタン)
+	element = WebDriverWait(driver, 10).until(
+		EC.visibility_of_element_located((By.CSS_SELECTOR, ".btn.btn-default.btn-lg.btn-ok.ng-binding"))
+	)
+	element.click()
+	sleep(2)
+	# 続けて購入するをクリック
+	element = WebDriverWait(driver, 10).until(
+		EC.element_to_be_clickable((By.XPATH, '//button[@ng-click="vm.clickContinue();"]'))
+	)
+	sleep(5)
+	# 投票メニューをクリックして戻る
+	driver.find_element(By.XPATH,"//a[@ui-sref='home']").click()
+	# ウィンドウは閉じずにセッションを維持
+
+	slog("INFO", "Purchase completed")
+
+	return True
+
+def get_race_result(url):
+	global driver
+
+	# セッションが無効な場合は新しいドライバーを作成
+	try:
+		driver.current_url  # セッションが有効かテスト
+	except:
+		slog("INFO", "Seleniumセッションが無効です。新しいドライバーを作成します。")
+		get_driver()
+
+	try:
+		driver.get(url)
+		sleep(2)
+		data = pd.read_html(StringIO(driver.page_source))
+		result_table = data[0] # 結果
+		payment1 = data[1] # 払い戻し１
+		payment2 = data[2] # 払い戻し２
+		return result_table, pd.concat([payment1, payment2])
+	except Exception as e:
+		slog("ERROR", f"レース結果の取得に失敗しました: {e}")
+		# 新しいドライバーで再試行
+		slog("INFO", "新しいドライバーで再試行します。")
+		get_driver()
+		driver.get(url)
+		sleep(2)
+		data = pd.read_html(StringIO(driver.page_source))
+		result_table = data[0] # 結果
+		payment1 = data[1] # 払い戻し１
+		payment2 = data[2] # 払い戻し２
+		return result_table, pd.concat([payment1, payment2])
+
+def result_check():
+
+	# DEBUG
+	url = "https://race.netkeiba.com/race/result.html?race_id=202509040311"
+	# DEBUG
+
+	slog("INFO", waku_num)
+
+	result_url = url.replace("race/shutuba.html", "race/result.html").replace("&rf=race_list", "&rf=race_submenu")
+	result_table, payment = get_race_result(result_url) # 実行
+	slog("INFO", result_table)
+	slog("INFO", "\n")
+	# slog("INFO", payment)
+
+	is_waku_in_top3 = result_table[(result_table["着 順"].isin([1, 2, 3])) & (result_table["馬 番"] == waku_num)].shape[0] > 0
+	slog("INFO", is_waku_in_top3)
+
+	if is_waku_in_top3:
+		# 複勝の行を見つける
+		fukusho_row = payment.loc[payment[0] == "複勝"].iloc[0]
+
+		# 馬番の文字列を分割（例: "14 6 7" -> ["14", "6", "7"]）
+		horse_numbers_str = str(fukusho_row[1]).strip()
+		horse_numbers = horse_numbers_str.split()
+
+		# 配当金の文字列を分割（例: "480円 130円 130円" -> ["480円", "130円", "130円"]）
+		odds_str = str(fukusho_row[2]).strip()
+		odds_list = odds_str.split()
+
+		slog("INFO", f"複勝馬番: {horse_numbers}")
+		slog("INFO", f"複勝配当: {odds_list}")
+
+		# 対象馬番が複勝圏内にあるかチェック
+		if str(waku_num) in horse_numbers:
+			index_of_waku = horse_numbers.index(str(waku_num))
+			odds_amount_str = odds_list[index_of_waku]
+			odds_amount = float(odds_amount_str.replace("円", "").replace(",", ""))
+			slog("INFO", f"対象馬番{waku_num}の複勝配当: {odds_amount}円")
+			dividend = odds_amount # 100円賭けに対する配当金
+			slog("INFO", f"配当金: {dividend}円")
+		else:
+			slog("INFO", f"馬番{waku_num}は複勝圏外でした")
+			dividend = 0
+	else:
+		dividend = 0
+
+	# 賭け金額（100円固定）
+	bet_amount = 100
+
+	# 損益計算
+	profit_loss = dividend - bet_amount
+
+	# 現在の資金を読み込み
+	capital_file_path = "../db/capital.txt"
+	try:
+		with open(capital_file_path, 'r') as f:
+			current_capital = int(f.read().strip())
+	except FileNotFoundError:
+		slog("ERROR", f"capital.txtファイルが見つかりません: {capital_file_path}")
+		current_capital = 0
+	except ValueError:
+		slog("ERROR", "capital.txtの内容が不正です")
+		current_capital = 0
+
+	# 新しい資金を計算
+	new_capital = current_capital + profit_loss
+
+	# 資金を更新
+	try:
+		with open(capital_file_path, 'w') as f:
+			f.write(str(int(new_capital)))
+		slog("INFO", f"資金更新: {current_capital}円 → {int(new_capital)}円 (損益: {int(profit_loss):+d}円)")
+	except Exception as e:
+		slog("ERROR", f"capital.txtの更新に失敗しました: {e}")
+
+	# 処理完了後、ドライバーを終了
+	try:
+		driver.quit()
+	except:
+		pass
+
+	return dividend
