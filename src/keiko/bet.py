@@ -139,7 +139,7 @@ def purchase(current_weekday):
 	slog("INFO", "4. Purchase")
 	sleep(1)
 
-	coursebutton_text = f"阪神（土）"
+	coursebutton_text = f"阪神（" + current_weekday + "）"
 	if coursebutton_text == "中山":
 		on_button = "btn btn-default btn-lg btn-block on"
 	else:
@@ -334,6 +334,7 @@ def result_check():
 	# 処理完了後、ドライバーを終了
 	try:
 		driver.quit()
+		slog("INFO", "ブラウザを終了しました。")
 	except:
 		pass
 
