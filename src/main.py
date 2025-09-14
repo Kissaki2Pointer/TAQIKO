@@ -45,9 +45,8 @@ def main():
 
 		slog("INFO", "競馬自動投票ツールを実行します。")
 
-		# 投票可能時間の8時30分まで待機する。
-		# slog("INFO", "8時30分まで待機します...")
-		# while not is_target_time("8:30"):
+		# slog("INFO", "14時30分まで待機します...")
+		# while not is_target_time("14:30"):
 		# 	time.sleep(60)  # 1分ごとにチェック
 
 		# JRA WEBログイン
@@ -59,7 +58,8 @@ def main():
 			return False
 
 		# 購入処理
-		if not purchase(current_weekday):
+		url = purchase(current_weekday)
+		if not url:
 			return False
 
 		# 1時間待機
@@ -67,7 +67,7 @@ def main():
 		time.sleep(1800) # 30分
 
 		# 結果確認
-		dividend = result_check()
+		dividend = result_check(url)
 		if dividend:
 			slog("INFO", "★勝ち")
 		else:
@@ -97,10 +97,9 @@ def main():
 
 		# 株価取得 & 解析
 		analyze_stock_data()
-
-	slog("END", "TAQIKOを終了します。\n")
 	return True
 
 if __name__ == "__main__":    
 	main()
+	slog("END", "TAQIKOを終了します。\n")
 	sys.exit(1)

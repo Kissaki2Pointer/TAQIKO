@@ -3,6 +3,7 @@ from time import sleep
 import random
 import pandas as pd
 from io import StringIO
+import re
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -20,7 +21,21 @@ from utils import get_env_value
 
 # TODO: 後でconfigに書く。
 setmoney = 1000
-waku_num = random.randint(1, 3)
+waku_num = 6
+
+# JRA 場番号
+JRA_VENUE_CODES = {
+    1: "札幌",
+    2: "函館",
+    3: "福島",
+    4: "新潟",
+    5: "東京",
+    6: "中山",
+    7: "中京",
+    8: "京都",
+    9: "阪神",
+    10: "小倉",
+}
 
 def get_driver():
 	global driver
@@ -135,17 +150,70 @@ def enter_payment(setmoney):
 
 	return True
 
+def get_race_list():
+	get_driver()
+
+	print("本日のレースを取得します。")
+
+	now = datetime.now()
+	now_datetime = now.strftime("%Y%m%d")
+	url = f'https://race.netkeiba.com/top/race_list.html?kaisai_date={now_datetime}'
+	driver.get(url)
+	sleep(3)
+	rs = driver.find_elements(by=By.CLASS_NAME, value='RaceList_DataList')
+	rsnames = [rsn.find_element(by=By.CLASS_NAME, value='RaceList_DataTitle').text for rsn in rs ]
+
+	racelist = [] # レースデータリスト
+	urllist = [] # netkeibaのURLリスト
+	for rss in rs:
+		rsname = rss.find_element(by=By.CLASS_NAME, value='RaceList_DataTitle').text
+		rsis = rss.find_elements(by=By.CLASS_NAME, value='RaceList_DataItem')
+		for rsi in rsis:
+			rsia = rsi.find_element(by=By.TAG_NAME, value='a')
+			rsin = rsi.find_element(by=By.CLASS_NAME, value='Race_Num')
+			rsi2 = rsi.find_element(by=By.CLASS_NAME, value='RaceList_ItemContent')
+			rsi2t = rsi2.find_element(by=By.CLASS_NAME, value='ItemTitle')
+			rsi2gradebk = rsi2.find_elements(by=By.CLASS_NAME, value='Icon_GradeType')
+			if len(rsi2gradebk) > 0 and 'Icon_GradeType ' in rsi2gradebk[0].get_attribute('class'):
+				classes = rsi2gradebk[0].get_attribute('class').split(" ")
+			else:
+				rsi2grade = "未勝利"
+			rsi2d = rsi2.find_element(by=By.CLASS_NAME, value='RaceData')
+			rsi2d2 = rsi2d.find_element(by=By.CLASS_NAME, value='RaceList_Itemtime')
+			rsi2d3 = rsi2d.find_elements(by=By.CLASS_NAME, value='RaceList_ItemLong')
+			if rsi2d3 is not None and rsi2d3 != []:
+				rsi2d3 = rsi2d3[0].text # コース情報
+			else:
+				rsi2d3 = rsi2d.find_elements(by=By.TAG_NAME, value='span')[1].text
+			rurl = rsia.get_attribute('href')
+			urllist.append(rurl) # netkeiba URL
+			racelist.append((rsname,rsin.text, rsi2t.text, rsi2d2.text, rsi2d3, rsi2grade))
+	return racelist, urllist
+
+
 def purchase(current_weekday):
 	slog("INFO", "4. Purchase")
 	sleep(1)
 
-	coursebutton_text = f"阪神（" + current_weekday + "）"
+	# レース情報一覧を引っ張ってくる。
+	racelist, urllist = get_race_list()
+	# print(urllist)
+	# 第10Rの競馬場の名前を取得する。
+	ba_name = get_venue_name(urllist[9])   # 中山 10R
+	print(ba_name)
+
+	coursebutton_text = f"{ba_name}（{current_weekday}）" # 中山（土）
+
+	slog("INFO", f"{coursebutton_text}の第10Rで{waku_num}番の複勝を購入します。")
+	slog("INFO", urllist[9])
+
+	# 初期位置はボタンが押された状態から始まる。
 	if coursebutton_text == "中山":
 		on_button = "btn btn-default btn-lg btn-block on"
 	else:
 		on_button = "btn btn-default btn-lg btn-block"
 
-	race_number = 11
+	race_number = 10
 	betmoney = 100
 
 	# オッズ投票ボタン
@@ -178,8 +246,10 @@ def purchase(current_weekday):
 	# 馬を選択
 	# 'btn-odds'クラスを持つすべてのボタンをリストとして取得
 	horse_buttons = driver.find_elements(By.CLASS_NAME, "btn-odds")
-	horse_buttons[waku_num].click() #1-3番目ランダムな人気ボタン
+	horse_buttons[waku_num].click()
 	# driver.find_element(By.XPATH, "//button[@class='btn-odds' and starts-with(@ng-click, 'vm.selectOdds(oOdds)')]").click() # 一番人気ボタン
+
+	# TODO : 実際に購入した馬番号を取得する処理。
 
 	sleep(2)
 	# 金額を入力
@@ -223,7 +293,7 @@ def purchase(current_weekday):
 
 	slog("INFO", "Purchase completed")
 
-	return True
+	return urllist[9]
 
 def get_race_result(url):
 	global driver
@@ -256,13 +326,11 @@ def get_race_result(url):
 		payment2 = data[2] # 払い戻し２
 		return result_table, pd.concat([payment1, payment2])
 
-def result_check():
+def result_check(url):
 
 	# DEBUG
-	url = "https://race.netkeiba.com/race/result.html?race_id=202509040311"
+	# url = "https://race.netkeiba.com/race/result.html?race_id=202509040311"
 	# DEBUG
-
-	slog("INFO", waku_num)
 
 	result_url = url.replace("race/shutuba.html", "race/result.html").replace("&rf=race_list", "&rf=race_submenu")
 	result_table, payment = get_race_result(result_url) # 実行
@@ -339,3 +407,28 @@ def result_check():
 		pass
 
 	return dividend
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
