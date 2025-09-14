@@ -21,9 +21,9 @@ def is_holiday_today():
 		holiday_name = jpholiday.is_holiday_name(today)
 		return True, holiday_name
 	
-	# 年末年始の金融機関休日
+	# 年末年始
 	today_str = today.strftime("%m/%d")
-	if today_str in ["12/31", "01/02", "01/03"]:
+	if today_str in ["12/31", "01/01" ,"01/02", "01/03", "01/04"]:
 		return True, "年末年始"
 	
 	return False, ""
@@ -69,10 +69,8 @@ def main():
 		# 結果確認
 		dividend = result_check()
 		if dividend:
-			# 勝ち
 			slog("INFO", "★勝ち")
 		else:
-			# 負け
 			slog("INFO", "負け")
 
 		return True
