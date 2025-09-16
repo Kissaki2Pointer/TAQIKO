@@ -1,4 +1,5 @@
 from logger import slog
+from .portfolio import get_stock_price_from_liquidity_data
 import json
 import os
 import urllib.request
@@ -273,10 +274,15 @@ def wait_for_execution_and_get_price(order_result, symbol, max_wait_seconds=30, 
             order_id = timestamp
             slog("INFO", f"検証用API: 仮の注文ID={order_id}を生成 {symbol}")
         
-        # テスト用の仮の約定価格を生成（銘柄コードに基づいて）
-        import hashlib
-        hash_val = int(hashlib.md5(symbol.encode()).hexdigest()[:8], 16)
-        test_price = 500 + (hash_val % 1500)  # 500-2000円の範囲でテスト価格を生成
+        # テスト用の約定価格を実際のデータから取得
+        test_price = get_stock_price_from_liquidity_data(symbol)
+
+        if test_price is None:
+            # liquidity_data.txtに見つからない場合はハッシュベースの価格を生成
+            import hashlib
+            hash_val = int(hashlib.md5(symbol.encode()).hexdigest()[:8], 16)
+            test_price = 500 + (hash_val % 1500)  # 500-2000円の範囲でテスト価格を生成
+            slog("INFO", f"検証用API: ハッシュベース価格を使用 {symbol} = {test_price}円")
         
         slog("INFO", f"検証用API: テスト約定価格={test_price}円 {symbol} (注文ID={order_id})")
         return float(test_price)

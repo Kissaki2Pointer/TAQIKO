@@ -3,24 +3,41 @@ import pandas_datareader.data as pdr
 import pandas as pd
 import talib as ta
 import numpy as np
-from .portfolio import read_capital, write_capital, calculate_commission, save_execution_to_position_file, get_all_positions
+from .portfolio import read_capital, write_capital, calculate_commission, save_execution_to_position_file, get_all_positions, get_stocks_from_liquidity_data
 from .broker import buy_stock_cash, sell_stock_cash, wait_for_execution_and_get_price
 from .data_fetcher import fetch_yahoo_finance_data
 
 def get_targets():
     """
-    db/positions内の.posファイルから動的にターゲット銘柄リストを生成する
+    ポジションファイルとliquidity_data.txtから動的にターゲット銘柄リストを生成する
 
     Returns:
-        list: [(銘柄コード, 銘柄名), ...] のリスト
+        list: [(銘柄コード, 銘柄名), ...] のリスト（重複除去済み）
     """
+    # ポジション銘柄を取得
     positions = get_all_positions()
-    if positions:
-        slog("INFO", f"ポジションファイルから{len(positions)}銘柄を取得")
-        return positions
+
+    # liquidity_data.txtから銘柄を取得
+    liquidity_stocks = get_stocks_from_liquidity_data()
+
+    # 両方のリストを結合
+    all_stocks = positions + liquidity_stocks
+
+    if all_stocks:
+        # 重複を除去（銘柄コードベース）
+        seen_codes = set()
+        unique_stocks = []
+
+        for code, name in all_stocks:
+            if code not in seen_codes:
+                seen_codes.add(code)
+                unique_stocks.append((code, name))
+
+        slog("INFO", f"ターゲット銘柄: ポジション{len(positions)}銘柄 + liquidity_data{len(liquidity_stocks)}銘柄 = 合計{len(unique_stocks)}銘柄（重複除去後）")
+        return unique_stocks
     else:
         # フォールバック: 既存の固定リスト
-        slog("WARNING", "ポジションファイルが見つからないため、固定リストを使用")
+        slog("WARNING", "ポジションファイルもliquidity_data.txtも見つからないため、固定リストを使用")
         return [
             ("6176", "ブランジスタ"),
             ("7792", "コラントッテ"),
@@ -226,10 +243,10 @@ def analyze_stock_data():
 	# 	return False
 
 	# テスト用: 強制的に2番目の銘柄を買いリストに追加
-	if not buy_list and len(targets) > 1:
-		test_stock = targets[1]  # 2番目の銘柄
-		buy_list.append(test_stock)
-		slog("INFO", f"テスト用に買いリストに追加: {test_stock[1]}（{test_stock[0]}）")
+	# if not buy_list and len(targets) > 1:
+	# 	test_stock = targets[1]  # 2番目の銘柄
+	# 	buy_list.append(test_stock)
+	# 	slog("INFO", f"テスト用に買いリストに追加: {test_stock[1]}（{test_stock[0]}）")
 
 	# 買いリストの銘柄を100株ずつ成行で購入（検証用API使用）
 	slog("INFO", "=== 購入処理開始 ===")
@@ -272,10 +289,10 @@ def analyze_stock_data():
 	slog("INFO", f"購入処理完了: {successful_orders}/{total_orders}件成功")
 
 	# テスト用: 強制的に最初の銘柄を売りリストに追加
-	if not sell_list and targets:
-		test_stock = targets[0]  # 最初の銘柄
-		sell_list.append(test_stock)
-		slog("INFO", f"テスト用に売りリストに追加: {test_stock[1]}（{test_stock[0]}）")
+	# if not sell_list and targets:
+	# 	test_stock = targets[0]  # 最初の銘柄
+	# 	sell_list.append(test_stock)
+	# 	slog("INFO", f"テスト用に売りリストに追加: {test_stock[1]}（{test_stock[0]}）")
 
 	# 売りリストの銘柄を100株ずつ成行で売却（検証用API使用）
 	slog("INFO", "=== 売却処理開始 ===")
@@ -360,24 +377,24 @@ def execute_trade():
         for stock in stock_data[:10]:  # 上位10銘柄のみ表示
             slog("INFO", f"[{stock['rank']}位] {stock['name']}({stock['symbol']}): {stock['current_price']}円 ({stock['change']} {stock['change_rate']}) 出来高: {stock['volume']}")
 
-        # テスト用: liquidity_data.txtにデータを出力
-        # try:
-        #     with open('../db/liquidity_data.txt', 'w', encoding='utf-8') as f:
-        #         f.write("東証グロース出来高上位データ\n")
-        #         f.write("=" * 50 + "\n")
-        #         for stock in stock_data:
-        #             f.write(f"順位: {stock['rank']}\n")
-        #             f.write(f"銘柄名: {stock['name']}\n")
-        #             f.write(f"銘柄コード: {stock['symbol']}\n")
-        #             f.write(f"現在値: {stock['current_price']}円\n")
-        #             f.write(f"前日比: {stock['change']}\n")
-        #             f.write(f"前日比率: {stock['change_rate']}\n")
-        #             f.write(f"出来高: {stock['volume']}\n")
-        #             f.write("-" * 30 + "\n")
+        # liquidity_data.txtにデータを出力
+        try:
+            with open('../db/liquidity_data.txt', 'w', encoding='utf-8') as f:
+                f.write("東証グロース出来高上位データ\n")
+                f.write("=" * 50 + "\n")
+                for stock in stock_data:
+                    f.write(f"順位: {stock['rank']}\n")
+                    f.write(f"銘柄名: {stock['name']}\n")
+                    f.write(f"銘柄コード: {stock['symbol']}\n")
+                    f.write(f"現在値: {stock['current_price']}円\n")
+                    f.write(f"前日比: {stock['change']}\n")
+                    f.write(f"前日比率: {stock['change_rate']}\n")
+                    f.write(f"出来高: {stock['volume']}\n")
+                    f.write("-" * 30 + "\n")
 
-        #     slog("INFO", "取得データをliquidity_data.txtに出力しました。")
-        # except Exception as e:
-        #     slog("ERROR", f"liquidity_data.txtへの出力に失敗: {e}")
+            slog("INFO", "取得データをliquidity_data.txtに出力しました。")
+        except Exception as e:
+            slog("ERROR", f"liquidity_data.txtへの出力に失敗: {e}")
 
         analyze_stock_data()
         return True

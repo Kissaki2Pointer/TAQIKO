@@ -212,6 +212,101 @@ def get_all_positions():
 
     return positions
 
+def get_stock_price_from_liquidity_data(symbol):
+    """
+    liquidity_data.txtから指定銘柄の現在値を取得する
+
+    Args:
+        symbol: 銘柄コード（文字列）
+
+    Returns:
+        float: 現在値、見つからない場合はNone
+    """
+    try:
+        # スクリプトのディレクトリからプロジェクトルートを取得
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(script_dir))
+        data_file = os.path.join(project_root, 'db', 'liquidity_data.txt')
+
+        if not os.path.exists(data_file):
+            slog("WARNING", f"liquidity_data.txtが見つかりません: {data_file}")
+            return None
+
+        with open(data_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # 銘柄コードと現在値を検索
+        import re
+
+        # 銘柄コードのパターンを検索
+        code_pattern = f'銘柄コード: {re.escape(symbol)}'
+        code_match = re.search(code_pattern, content)
+
+        if code_match:
+            # 銘柄コードが見つかった場合、その後の現在値を検索
+            start_pos = code_match.end()
+            # 現在値パターン: "現在値: 1,234円"
+            price_pattern = r'現在値: ([0-9,]+)円'
+            price_match = re.search(price_pattern, content[start_pos:start_pos+200])  # 200文字以内で検索
+
+            if price_match:
+                price_str = price_match.group(1).replace(',', '')  # カンマを除去
+                price = float(price_str)
+                slog("INFO", f"liquidity_data.txtから取得: {symbol} = {price}円")
+                return price
+
+        slog("WARNING", f"liquidity_data.txtに銘柄が見つかりません: {symbol}")
+        return None
+
+    except Exception as e:
+        slog("ERROR", f"liquidity_data.txt読み込みエラー: {e}")
+        return None
+
+def get_stocks_from_liquidity_data():
+    """
+    liquidity_data.txtから全銘柄のリストを取得する
+
+    Returns:
+        list: [(銘柄コード, 銘柄名), ...] のリスト
+    """
+    stocks = []
+
+    try:
+        # スクリプトのディレクトリからプロジェクトルートを取得
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(script_dir))
+        data_file = os.path.join(project_root, 'db', 'liquidity_data.txt')
+
+        if not os.path.exists(data_file):
+            slog("WARNING", f"liquidity_data.txtが見つかりません: {data_file}")
+            return stocks
+
+        with open(data_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # 銘柄名と銘柄コードを抽出するパターン
+        import re
+
+        # 銘柄名: "銘柄名: データセクション(株)"
+        # 銘柄コード: "銘柄コード: 3905"
+        name_pattern = r'銘柄名: (.+)'
+        code_pattern = r'銘柄コード: ([^\s]+)'
+
+        names = re.findall(name_pattern, content)
+        codes = re.findall(code_pattern, content)
+
+        # 名前とコードをペアにする
+        if len(names) == len(codes):
+            stocks = list(zip(codes, names))
+            slog("INFO", f"liquidity_data.txtから{len(stocks)}銘柄を取得")
+        else:
+            slog("ERROR", f"銘柄名({len(names)})と銘柄コード({len(codes)})の数が一致しません")
+
+    except Exception as e:
+        slog("ERROR", f"liquidity_data.txt解析エラー: {e}")
+
+    return stocks
+
 
 
 

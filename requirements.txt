@@ -3,3 +3,5 @@ pandas_datareader
 TA-Lib
 mplfinance
 jpholiday
+beautifulsoup4
+requests 
