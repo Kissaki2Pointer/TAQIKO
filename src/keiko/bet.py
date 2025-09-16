@@ -4,6 +4,7 @@ import random
 import pandas as pd
 from io import StringIO
 import re
+from datetime import datetime
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -151,13 +152,18 @@ def enter_payment(setmoney):
 	return True
 
 def get_race_list():
-	get_driver()
+	global driver
 
 	print("本日のレースを取得します。")
 
 	now = datetime.now()
 	now_datetime = now.strftime("%Y%m%d")
 	url = f'https://race.netkeiba.com/top/race_list.html?kaisai_date={now_datetime}'
+
+	# 新しいタブでnetkeibaを開く（JRAセッションを維持するため）
+	driver.execute_script("window.open('');")
+	window_handles = driver.window_handles
+	driver.switch_to.window(window_handles[-1])  # 新しいタブに移動
 	driver.get(url)
 	sleep(3)
 	rs = driver.find_elements(by=By.CLASS_NAME, value='RaceList_DataList')
@@ -191,21 +197,38 @@ def get_race_list():
 	return racelist, urllist
 
 
+def get_venue_name(race_id_or_url: str) -> str:
+    # race_id を抽出
+    qs = parse_qs(urlparse(race_id_or_url).query)
+    if "race_id" in qs and qs["race_id"]:
+        race_id = qs["race_id"][0]
+    else:
+        race_id = race_id_or_url
+
+    # 数字だけにして12桁 race_id を取得
+    race_id = "".join(re.findall(r"\d", race_id))[:12]
+
+    # 5〜6桁目が場番号
+    venue_code = int(race_id[4:6])
+    return JRA_VENUE_CODES.get(venue_code, "不明な競馬場")
+
+
 def purchase(current_weekday):
-	slog("INFO", "4. Purchase")
+	slog("INFO", f"購入処理を実行します。")
 	sleep(1)
 
 	# レース情報一覧を引っ張ってくる。
 	racelist, urllist = get_race_list()
-	# print(urllist)
+
 	# 第10Rの競馬場の名前を取得する。
-	ba_name = get_venue_name(urllist[9])   # 中山 10R
-	print(ba_name)
+	# ba_name = get_venue_name(urllist[9])   # 中山 10R
+	race_number = 9
+	betmoney = 100
+	select_race = urllist[9]
+	ba_name = get_venue_name(select_race)
 
 	coursebutton_text = f"{ba_name}（{current_weekday}）" # 中山（土）
-
-	slog("INFO", f"{coursebutton_text}の第10Rで{waku_num}番の複勝を購入します。")
-	slog("INFO", urllist[9])
+	print(coursebutton_text)
 
 	# 初期位置はボタンが押された状態から始まる。
 	if coursebutton_text == "中山":
@@ -213,11 +236,32 @@ def purchase(current_weekday):
 	else:
 		on_button = "btn btn-default btn-lg btn-block"
 
-	race_number = 10
-	betmoney = 100
+	# 現在の状況をデバッグ
+	window_handles = driver.window_handles
+
+	# netkeibaのウィンドウを閉じてJRAのメインウィンドウに戻る
+	if len(window_handles) > 1:
+		# 現在のウィンドウ（netkeiba）を閉じる
+		driver.close()
+		# JRAのメインウィンドウ（最初のウィンドウ）に切り替え
+		driver.switch_to.window(window_handles[0])
+	else:
+		slog("INFO", "ウィンドウは1つのみです。")
+
+	sleep(2)
+
+	# try:
+	# 	driver.find_element(By.XPATH, "//a[@ui-sref='home']").click()
+	# 	sleep(2)
+	# except:
+	# 	slog("INFO", "ホームボタンが見つかりません。")
 
 	# オッズ投票ボタン
-	driver.find_element(By.XPATH, "//button[contains(@class, 'btn btn-default btn-lg btn-block btn-size')]//*[contains(., 'オッズ')]/..").click()
+	try:
+		driver.find_element(By.XPATH, "//button[@ui-sref='bet.odds.type']").click()
+	except Exception as e:
+		slog("ERROR", f"オッズボタンが見つかりません: {e}")
+		return False
 	sleep(2)
 	# オッズ投票（人気順）ボタン
 	driver.find_element(By.LINK_TEXT, 'オッズ投票（人気順）').click()
@@ -245,11 +289,9 @@ def purchase(current_weekday):
 	sleep(2)
 	# 馬を選択
 	# 'btn-odds'クラスを持つすべてのボタンをリストとして取得
-	horse_buttons = driver.find_elements(By.CLASS_NAME, "btn-odds")
-	horse_buttons[waku_num].click()
-	# driver.find_element(By.XPATH, "//button[@class='btn-odds' and starts-with(@ng-click, 'vm.selectOdds(oOdds)')]").click() # 一番人気ボタン
-
-	# TODO : 実際に購入した馬番号を取得する処理。
+	# horse_buttons = driver.find_elements(By.CLASS_NAME, "btn-odds")
+	# horse_buttons[waku_num].click()
+	driver.find_element(By.XPATH, "//button[@class='btn-odds' and starts-with(@ng-click, 'vm.selectOdds(oOdds)')]").click() # 一番人気ボタン
 
 	sleep(2)
 	# 金額を入力
@@ -282,6 +324,18 @@ def purchase(current_weekday):
 	)
 	element.click()
 	sleep(2)
+
+	# 実際に購入した馬番を取得する。
+	try:
+		horse_number_element = driver.find_element(By.CSS_SELECTOR, ".set-heading.ng-binding")
+		purchased_horse_number = horse_number_element.text
+		# グローバル変数waku_numを更新
+		global waku_num
+		waku_num = int(purchased_horse_number)
+	except Exception as e:
+		slog("ERROR", f"馬番の取得に失敗しました: {e}")
+		slog("INFO", f"設定値の馬番{waku_num}を使用します。")
+
 	# 続けて購入するをクリック
 	element = WebDriverWait(driver, 10).until(
 		EC.element_to_be_clickable((By.XPATH, '//button[@ng-click="vm.clickContinue();"]'))
@@ -291,9 +345,10 @@ def purchase(current_weekday):
 	driver.find_element(By.XPATH,"//a[@ui-sref='home']").click()
 	# ウィンドウは閉じずにセッションを維持
 
-	slog("INFO", "Purchase completed")
+	slog("INFO", f"{coursebutton_text}の第{race_number}Rで{waku_num}番の複勝を購入しました。")
+	slog("INFO", select_race)
 
-	return urllist[9]
+	return select_race
 
 def get_race_result(url):
 	global driver
@@ -327,10 +382,7 @@ def get_race_result(url):
 		return result_table, pd.concat([payment1, payment2])
 
 def result_check(url):
-
-	# DEBUG
-	# url = "https://race.netkeiba.com/race/result.html?race_id=202509040311"
-	# DEBUG
+	slog("INFO", f"レース結果を取得します。")
 
 	result_url = url.replace("race/shutuba.html", "race/result.html").replace("&rf=race_list", "&rf=race_submenu")
 	result_table, payment = get_race_result(result_url) # 実行
@@ -397,12 +449,11 @@ def result_check(url):
 			f.write(str(int(new_capital)))
 		slog("INFO", f"資金更新: {current_capital}円 → {int(new_capital)}円 (損益: {int(profit_loss):+d}円)")
 	except Exception as e:
-		slog("ERROR", f"capital.txtの更新に失敗しました: {e}")
+		slog("ERROR", f"資金更新に失敗しました: {e}")
 
 	# 処理完了後、ドライバーを終了
 	try:
 		driver.quit()
-		slog("INFO", "ブラウザを終了しました。")
 	except:
 		pass
 

@@ -63,7 +63,7 @@ def main():
 			return False
 
 		# 1時間待機
-		slog("INFO", "待機を開始します。")
+		slog("INFO", "結果が反映されるまで30分待機します。")
 		time.sleep(1800) # 30分
 
 		# 結果確認
