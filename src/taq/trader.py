@@ -3,17 +3,32 @@ import pandas_datareader.data as pdr
 import pandas as pd
 import talib as ta
 import numpy as np
-from .portfolio import read_capital, write_capital, calculate_commission, save_execution_to_position_file
+from .portfolio import read_capital, write_capital, calculate_commission, save_execution_to_position_file, get_all_positions
 from .broker import buy_stock_cash, sell_stock_cash, wait_for_execution_and_get_price
+from .data_fetcher import fetch_yahoo_finance_data
 
-TARGETS = [
-    ("6176", "ブランジスタ"),
-    ("7792", "コラントッテ"),
-    ("4424", "Amazia"),
-    ("4260", "ハイブリッドテクノロジーズ"),
-    ("5253", "カバー"),
-    ("5262", "ヒューム"),
-]
+def get_targets():
+    """
+    db/positions内の.posファイルから動的にターゲット銘柄リストを生成する
+
+    Returns:
+        list: [(銘柄コード, 銘柄名), ...] のリスト
+    """
+    positions = get_all_positions()
+    if positions:
+        slog("INFO", f"ポジションファイルから{len(positions)}銘柄を取得")
+        return positions
+    else:
+        # フォールバック: 既存の固定リスト
+        slog("WARNING", "ポジションファイルが見つからないため、固定リストを使用")
+        return [
+            ("6176", "ブランジスタ"),
+            ("7792", "コラントッテ"),
+            ("4424", "Amazia"),
+            ("4260", "ハイブリッドテクノロジーズ"),
+            ("5253", "カバー"),
+            ("5262", "ヒューム"),
+        ]
 
 def update_capital_after_trading(buy_transactions, sell_transactions):
     """
@@ -145,15 +160,18 @@ def analyze_stock_with_moving_averages(code, company_name):
 
 def analyze_all_targets():
 	"""
-	TARGETSリスト内のすべての銘柄を分析し、buy_listとsell_listを作成
+	ポジションファイルから取得した全銘柄を分析し、buy_listとsell_listを作成
 	"""
 	slog("INFO", "全銘柄の移動平均線分析を開始します。")
-	
+
+	# 動的にターゲット銘柄を取得
+	targets = get_targets()
+
 	results = {}
 	buy_list = []
 	sell_list = []
-	
-	for code, company_name in TARGETS:
+
+	for code, company_name in targets:
 		try:
 			df, yesterday_gc, yesterday_dc = analyze_stock_with_moving_averages(code, company_name)
 			results[code] = df
@@ -185,11 +203,14 @@ def analyze_all_targets():
 
 def analyze_stock_data():
 	slog("INFO", "売買リストを作成します。")
-	
+
 	results, buy_list, sell_list = analyze_all_targets()
 
 	# capital.txtから今日の発注可能枠を取得
 	daily_capital = read_capital()
+
+	# targetsを1回だけ取得して使い回す
+	targets = get_targets()
 
 	# 入金処理はAPIでできない。
 
@@ -205,8 +226,8 @@ def analyze_stock_data():
 	# 	return False
 
 	# テスト用: 強制的に2番目の銘柄を買いリストに追加
-	if not buy_list and len(TARGETS) > 1:
-		test_stock = TARGETS[1]  # 2番目の銘柄
+	if not buy_list and len(targets) > 1:
+		test_stock = targets[1]  # 2番目の銘柄
 		buy_list.append(test_stock)
 		slog("INFO", f"テスト用に買いリストに追加: {test_stock[1]}（{test_stock[0]}）")
 
@@ -251,8 +272,8 @@ def analyze_stock_data():
 	slog("INFO", f"購入処理完了: {successful_orders}/{total_orders}件成功")
 
 	# テスト用: 強制的に最初の銘柄を売りリストに追加
-	if not sell_list and TARGETS:
-		test_stock = TARGETS[0]  # 最初の銘柄
+	if not sell_list and targets:
+		test_stock = targets[0]  # 最初の銘柄
 		sell_list.append(test_stock)
 		slog("INFO", f"テスト用に売りリストに追加: {test_stock[1]}（{test_stock[0]}）")
 
@@ -316,5 +337,52 @@ def analyze_stock_data():
 		slog("INFO", "約定した取引がないため発注可能枠の更新をスキップしました")
 
 	return True
+
+
+
+
+
+# -------
+
+def execute_trade():
+    """
+    株価データを取得して取引を実行する
+    """
+    slog("INFO", "株価データ取得・取引処理を開始します。")
+
+    # 株価データをスクレイピング
+    stock_data = fetch_yahoo_finance_data()
+
+    if stock_data:
+        slog("INFO", f"東証グロース出来高上位データ取得完了: {len(stock_data)}銘柄")
+
+        # 取得したデータをログに出力
+        for stock in stock_data[:10]:  # 上位10銘柄のみ表示
+            slog("INFO", f"[{stock['rank']}位] {stock['name']}({stock['symbol']}): {stock['current_price']}円 ({stock['change']} {stock['change_rate']}) 出来高: {stock['volume']}")
+
+        # テスト用: liquidity_data.txtにデータを出力
+        # try:
+        #     with open('../db/liquidity_data.txt', 'w', encoding='utf-8') as f:
+        #         f.write("東証グロース出来高上位データ\n")
+        #         f.write("=" * 50 + "\n")
+        #         for stock in stock_data:
+        #             f.write(f"順位: {stock['rank']}\n")
+        #             f.write(f"銘柄名: {stock['name']}\n")
+        #             f.write(f"銘柄コード: {stock['symbol']}\n")
+        #             f.write(f"現在値: {stock['current_price']}円\n")
+        #             f.write(f"前日比: {stock['change']}\n")
+        #             f.write(f"前日比率: {stock['change_rate']}\n")
+        #             f.write(f"出来高: {stock['volume']}\n")
+        #             f.write("-" * 30 + "\n")
+
+        #     slog("INFO", "取得データをliquidity_data.txtに出力しました。")
+        # except Exception as e:
+        #     slog("ERROR", f"liquidity_data.txtへの出力に失敗: {e}")
+
+        analyze_stock_data()
+        return True
+    else:
+        slog("ERROR", "株価データ取得に失敗したため、取引処理を中止します。")
+        return False
 
 

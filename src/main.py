@@ -8,7 +8,7 @@ from logger import slog
 from datetime import datetime
 from keiko.bet import web_login,payment,purchase,result_check
 from taq.token_store import get_token
-from taq.trader import analyze_stock_data
+from taq.trader import execute_trade
 from utils import is_target_time
 
 def is_holiday_today():
@@ -45,9 +45,9 @@ def main():
 
 		slog("INFO", "競馬自動投票ツールを実行します。")
 
-		# slog("INFO", "14時30分まで待機します...")
-		# while not is_target_time("14:30"):
-		# 	time.sleep(60)  # 1分ごとにチェック
+		slog("INFO", "14時30分まで待機します...")
+		while not is_target_time("14:30"):
+			time.sleep(60)  # 1分ごとにチェック
 
 		# JRA WEBログイン
 		if not web_login():
@@ -96,7 +96,8 @@ def main():
 			sys.exit(1)
 
 		# 株価取得 & 解析
-		analyze_stock_data()
+		execute_trade()
+		
 	return True
 
 if __name__ == "__main__":    

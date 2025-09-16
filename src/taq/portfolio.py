@@ -159,6 +159,59 @@ def calculate_commission(execution_amount):
         commission = int(execution_amount * 0.00099) + 99
         return min(commission, 4059)
 
+def get_all_positions():
+    """
+    db/positions内の全ての.posファイルを読み込んでポジション情報を取得する
+
+    Returns:
+        list: [(銘柄コード, 銘柄名または銘柄コード), ...] のリスト
+    """
+    positions = []
+
+    try:
+        # スクリプトのディレクトリからプロジェクトルートを取得
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(script_dir))
+        positions_dir = os.path.join(project_root, 'db', 'positions')
+
+        if not os.path.exists(positions_dir):
+            slog("WARNING", f"ポジションディレクトリが存在しません: {positions_dir}")
+            return positions
+
+        # .posファイルを検索
+        for filename in os.listdir(positions_dir):
+            if filename.endswith('.pos'):
+                symbol = filename.replace('.pos', '')
+                position_file = os.path.join(positions_dir, filename)
+
+                # ポジションファイルの内容を確認
+                try:
+                    with open(position_file, 'r', encoding='utf-8') as f:
+                        data = {}
+                        for line in f:
+                            line = line.strip()
+                            if '=' in line:
+                                key, value = line.split('=', 1)
+                                data[key] = value
+
+                    # 数量が0より大きい場合のみ追加
+                    qty = int(data.get('qty', 0))
+                    if qty > 0:
+                        # 銘柄名は現時点では銘柄コードを使用（必要に応じて後で拡張）
+                        positions.append((symbol, symbol))
+                        slog("INFO", f"ポジション検出: {symbol} ({qty}株)")
+
+                except Exception as e:
+                    slog("ERROR", f"ポジションファイル読み込みエラー: {position_file} - {e}")
+                    continue
+
+        slog("INFO", f"ポジション数: {len(positions)}銘柄")
+
+    except Exception as e:
+        slog("ERROR", f"ポジション取得でエラー: {e}")
+
+    return positions
+
 
 
 
